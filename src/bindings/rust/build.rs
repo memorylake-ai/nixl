@@ -273,9 +273,38 @@ fn run_build(use_stub_api: bool) {
     }
 }
 
+/// Locates a CUDA toolkit, returning its library directory.
+fn find_cuda_lib_dir() -> Option<PathBuf> {
+    let roots = env::var("CUDA_PATH")
+        .or_else(|_| env::var("CUDA_HOME"))
+        .map(|p| vec![PathBuf::from(p)])
+        .unwrap_or_else(|_| vec![PathBuf::from("/usr/local/cuda")]);
+
+    roots
+        .iter()
+        .flat_map(|root| [root.join("lib64"), root.join("lib")])
+        .find(|dir| dir.join("libcudart.so").exists())
+}
+
+/// Gates the memory view tests on a CUDA toolkit being present, so a build
+/// without one links no CUDA symbols.
+fn probe_cuda() {
+    println!("cargo::rustc-check-cfg=cfg(has_cuda)");
+    println!("cargo:rerun-if-env-changed=CUDA_PATH");
+    println!("cargo:rerun-if-env-changed=CUDA_HOME");
+
+    if let Some(lib_dir) = find_cuda_lib_dir() {
+        let lib_dir = lib_dir.display();
+        println!("cargo:rustc-link-search=native={lib_dir}");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{lib_dir}");
+        println!("cargo:rustc-cfg=has_cuda");
+    }
+}
+
 fn main() {
     // Check if we're building with stub API
     let use_stub_api = cfg!(feature = "stub-api");
 
     run_build(use_stub_api);
+    probe_cuda();
 }

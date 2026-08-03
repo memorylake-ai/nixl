@@ -58,6 +58,7 @@ struct nixl_capi_reg_dlist_s;
 struct nixl_capi_xfer_req_s;
 struct nixl_capi_notif_map_s;
 struct nixl_capi_query_resp_list_s;
+struct nixl_capi_remote_dlist_s;
 
 struct nixl_capi_xfer_telemetry_s {
     uint64_t start_time_us; // Start time in microseconds since epoch
@@ -81,6 +82,8 @@ typedef struct nixl_capi_reg_dlist_s* nixl_capi_reg_dlist_t;
 typedef struct nixl_capi_xfer_req_s* nixl_capi_xfer_req_t;
 typedef struct nixl_capi_notif_map_s* nixl_capi_notif_map_t;
 typedef struct nixl_capi_query_resp_list_s *nixl_capi_query_resp_list_t;
+typedef struct nixl_capi_remote_dlist_s *nixl_capi_remote_dlist_t;
+typedef void *nixl_capi_mem_view_t;
 
 // Thread sync enum matching nixl_thread_sync_t
 typedef enum {
@@ -348,6 +351,35 @@ nixl_capi_query_mem(nixl_capi_agent_t agent,
                     nixl_capi_reg_dlist_t descs,
                     nixl_capi_query_resp_list_t resp,
                     nixl_capi_opt_args_t opt_args);
+
+// Memory view functions
+nixl_capi_status_t
+nixl_capi_prep_mem_view_local(nixl_capi_agent_t agent,
+                              nixl_capi_xfer_dlist_t descs,
+                              nixl_capi_mem_view_t *mvh,
+                              nixl_capi_opt_args_t opt_args);
+
+nixl_capi_status_t
+nixl_capi_prep_mem_view_remote(nixl_capi_agent_t agent,
+                               nixl_capi_remote_dlist_t descs,
+                               nixl_capi_mem_view_t *mvh,
+                               nixl_capi_opt_args_t opt_args);
+
+// Remote descriptor list. Each descriptor carries its own agent name; a NULL
+// remote_agent means nixl_null_agent.
+nixl_capi_status_t
+nixl_capi_create_remote_dlist(nixl_capi_mem_type_t mem_type, nixl_capi_remote_dlist_t *dlist);
+nixl_capi_status_t
+nixl_capi_destroy_remote_dlist(nixl_capi_remote_dlist_t dlist);
+nixl_capi_status_t
+nixl_capi_remote_dlist_add_desc(nixl_capi_remote_dlist_t dlist,
+                                uintptr_t addr,
+                                size_t len,
+                                uint64_t dev_id,
+                                const char *remote_agent);
+
+nixl_capi_status_t
+nixl_capi_release_mem_view(nixl_capi_agent_t agent, nixl_capi_mem_view_t mvh);
 
 // Telemetry structure for transfer requests
 typedef struct nixl_capi_xfer_telemetry_s *nixl_capi_xfer_telemetry_t;
