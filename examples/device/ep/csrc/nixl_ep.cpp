@@ -21,7 +21,7 @@
  */
 
 #include "nixl_ep.hpp"
- 
+
 #include "cuda_warn.hpp"
 #include "kernels/api.cuh"
 
@@ -853,12 +853,12 @@ Buffer::ht_dispatch(const torch::stable::Tensor &x,
 
         // Just a barrier and clean flags
         ht::cached_notify(hidden_int4, num_scales, num_topk, num_topk,
-                                 num_ranks, num_channels, 0, nullptr,
+                                 max_num_ranks, num_channels, 0, nullptr,
                                  nullptr, nullptr, nullptr,
                                  rdma_buffer_ptr, config.num_max_rdma_chunked_recv_tokens,
                                  buffer_ptrs_gpu, config.num_max_nvl_chunked_recv_tokens,
                                  barrier_signal_ptrs_gpu, rank, comm_stream,
-                                 config.get_rdma_buffer_size_hint(hidden_int4 * sizeof(int4), num_ranks),
+                                 config.get_rdma_buffer_size_hint(hidden_int4 * sizeof(int4), max_num_ranks),
                                  num_nvl_bytes, timeout_cycles, true, gpu_ctx);
     } else {
         const int64_t rdma_channel_sizes[] = {num_rdma_ranks, num_channels};
