@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,7 +31,8 @@ nixl_status_t gdsUtil::registerFileHandle(int fd,
 
     status = cuFileHandleRegister(&handle, &descr);
     if (status.err != CU_FILE_SUCCESS) {
-        NIXL_ERROR << "file register error:";
+        NIXL_ERROR << "cuFileHandleRegister failed: " << CUFILE_ERRSTR(status.err)
+                   << " (err=" << status.err << ")";
         return NIXL_ERR_BACKEND;
     }
 
@@ -51,7 +52,8 @@ nixl_status_t gdsUtil::registerBufHandle(void *ptr,
 
     status = cuFileBufRegister(ptr, size, flags);
     if (status.err != CU_FILE_SUCCESS) {
-        NIXL_WARN << "Buffer registration failed - will use compat mode";
+        NIXL_WARN << "cuFileBufRegister failed - will use compat mode: "
+                  << CUFILE_ERRSTR(status.err) << " (err=" << status.err << ")";
     }
     return NIXL_SUCCESS;
 }
@@ -62,7 +64,8 @@ nixl_status_t gdsUtil::openGdsDriver()
 
     err = cuFileDriverOpen();
     if (err.err != CU_FILE_SUCCESS) {
-        NIXL_ERROR << "Error initializing GPU Direct Storage driver";
+        NIXL_ERROR << "cuFileDriverOpen failed: " << CUFILE_ERRSTR(err.err) << " (err=" << err.err
+                   << ")";
         return NIXL_ERR_BACKEND;
     }
     return NIXL_SUCCESS;
@@ -84,7 +87,8 @@ nixl_status_t gdsUtil::deregisterBufHandle(void *ptr)
 
     status = cuFileBufDeregister(ptr);
     if (status.err != CU_FILE_SUCCESS) {
-        NIXL_ERROR << "Error De-Registering Buffer";
+        NIXL_ERROR << "cuFileBufDeregister failed: " << CUFILE_ERRSTR(status.err)
+                   << " (err=" << status.err << ")";
         return NIXL_ERR_BACKEND;
     }
     return NIXL_SUCCESS;
@@ -100,7 +104,8 @@ nixlGdsIOBatch::nixlGdsIOBatch(unsigned int size)
 
     err = cuFileBatchIOSetUp(&batch_handle, size);
     if (err.err != 0) {
-        NIXL_ERROR << "Error in setting up Batch";
+        NIXL_ERROR << "cuFileBatchIOSetUp failed: " << CUFILE_ERRSTR(err.err) << " (err=" << err.err
+                   << ")";
         init_err = err;
     }
 }
@@ -147,7 +152,8 @@ nixl_status_t nixlGdsIOBatch::cancelBatch()
 
     err = cuFileBatchIOCancel(batch_handle);
     if (err.err != 0) {
-        NIXL_ERROR << "Error in canceling batch";
+        NIXL_ERROR << "cuFileBatchIOCancel failed: " << CUFILE_ERRSTR(err.err)
+                   << " (err=" << err.err << ")";
         return NIXL_ERR_BACKEND;
     }
     return NIXL_SUCCESS;
@@ -160,7 +166,8 @@ nixl_status_t nixlGdsIOBatch::submitBatch(int flags)
     err = cuFileBatchIOSubmit(batch_handle, batch_size,
                               io_batch_params, flags);
     if (err.err != 0) {
-        NIXL_ERROR << "Error in setting up Batch";
+        NIXL_ERROR << "cuFileBatchIOSubmit failed: " << CUFILE_ERRSTR(err.err)
+                   << " (err=" << err.err << ")";
         return NIXL_ERR_BACKEND;
     }
     return NIXL_SUCCESS;
@@ -174,7 +181,8 @@ nixl_status_t nixlGdsIOBatch::checkStatus()
     errBatch = cuFileBatchIOGetStatus(batch_handle, nr, &nr,
                                       io_batch_events, NULL);
     if (errBatch.err != 0) {
-        NIXL_ERROR << "Error in IO Batch Get Status";
+        NIXL_ERROR << "cuFileBatchIOGetStatus failed: " << CUFILE_ERRSTR(errBatch.err)
+                   << " (err=" << errBatch.err << ")";
         current_status = NIXL_ERR_BACKEND;
     }
 
