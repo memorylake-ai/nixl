@@ -19,6 +19,7 @@
 #include <libaio.h>
 #include "common/nixl_log.h"
 #include <algorithm>
+#include <cerrno>
 #include <absl/strings/str_format.h>
 
 #define MAX_IO_SUBMIT_BATCH_SIZE 64
@@ -27,7 +28,9 @@
 struct nixlPosixLinuxAioIO {
 public:
     nixlPosixIOQueueDoneCb clb_;
-    void *ctx_;
+    void *ctx_ = nullptr;
+    size_t len_ = 0;
+    bool in_flight_ = false;
     struct iocb io_;
 };
 
@@ -47,15 +50,20 @@ public:
             void *ctx) override;
     virtual nixl_status_t
     poll(void) override;
+    virtual unsigned
+    cancel(void *ctx, nixlPosixIOQueueCancelDoneCb clb) override;
     virtual ~nixlPosixIOQueueLinuxAIO() override;
 
 protected:
-    nixlPosixLinuxAioIO *
-    getBufInfo(struct iocb *io);
     nixl_status_t
     doCheckCompleted(void);
 
 private:
+    void
+    completeIO(nixlPosixLinuxAioIO *io, int64_t result);
+    void
+    failQueuedIOs(void *ctx);
+
     io_context_t io_ctx_; // I/O context
 };
 
@@ -65,7 +73,7 @@ nixlPosixIOQueueLinuxAIO::nixlPosixIOQueueLinuxAIO(uint32_t ios_pool_size,
     int res = io_queue_init(kernel_queue_size_, &io_ctx_);
     if (res) {
         throw std::runtime_error(
-            absl::StrFormat("Failed to initialize io_queue: %s", nixl_strerror(errno)));
+            absl::StrFormat("Failed to initialize io_queue: %s", nixl_strerror(-res)));
     }
 }
 
@@ -91,6 +99,8 @@ nixlPosixIOQueueLinuxAIO::enqueue(int fd,
     }
     io->clb_ = clb;
     io->ctx_ = ctx;
+    io->len_ = len;
+    io->in_flight_ = false;
     io->io_.data = io;
     ios_to_submit_.push_back(io);
 
@@ -101,14 +111,14 @@ nixlPosixIOQueueLinuxAIO::~nixlPosixIOQueueLinuxAIO() {
     io_queue_release(io_ctx_);
 }
 
-// Note: post() must return NIXL_IN_PROG in case of success
+// Note: post() must return NIXL_IN_PROG in case of success.
 nixl_status_t
 nixlPosixIOQueueLinuxAIO::post(void) {
     struct iocb *ios[MAX_IO_SUBMIT_BATCH_SIZE];
     nixlPosixLinuxAioIO *to_submit[MAX_IO_SUBMIT_BATCH_SIZE];
 
     if (ios_to_submit_.empty()) {
-        return NIXL_IN_PROG; // No blocks to submit
+        return NIXL_IN_PROG;
     }
 
     int num_ios = std::min(MAX_IO_SUBMIT_BATCH_SIZE, (int)ios_to_submit_.size());
@@ -121,76 +131,117 @@ nixlPosixIOQueueLinuxAIO::post(void) {
     }
 
     int ret = io_submit(io_ctx_, num_ios, ios);
+    nixl_status_t status = NIXL_IN_PROG;
     if (ret < 0) {
-        if (ret == -EAGAIN) {
-            ret = 0; // 0 were submitted, we will try again later
-        } else {
+        if (ret != -EAGAIN && ret != -EINTR) {
             NIXL_ERROR << "io_submit failed: " << nixl_strerror(-ret);
-            return NIXL_ERR_BACKEND;
+            status = NIXL_ERR_BACKEND;
         }
+        ret = 0;
+    }
+
+    for (int i = 0; i < ret; i++) {
+        to_submit[i]->in_flight_ = true;
     }
 
     for (int i = num_ios - 1; i >= ret; i--) {
-        // If not submitted, push back to the front of the list
-        nixlPosixLinuxAioIO *io = to_submit[i];
-        ios_to_submit_.push_front(io);
+        ios_to_submit_.push_front(to_submit[i]);
     }
 
-    return NIXL_IN_PROG;
+    return status;
+}
+
+void
+nixlPosixIOQueueLinuxAIO::completeIO(nixlPosixLinuxAioIO *io, int64_t result) {
+    NIXL_ASSERT(io->in_flight_);
+    io->in_flight_ = false;
+
+    int error = result < 0 || static_cast<size_t>(result) != io->len_;
+    if (error) {
+        NIXL_DEBUG << absl::StrFormat(
+            "AIO operation incomplete: result %ld, expected %zu", result, io->len_);
+    }
+    if (io->clb_) {
+        io->clb_(io->ctx_, error ? 0 : static_cast<uint32_t>(result), error);
+    }
+
+    free_ios_.push_back(io);
 }
 
 inline nixl_status_t
 nixlPosixIOQueueLinuxAIO::doCheckCompleted(void) {
     struct io_event events[MAX_IO_CHECK_COMPLETED_BATCH_SIZE];
-    std::list<nixlPosixLinuxAioIO *> completed_ios;
-    int rc;
     struct timespec timeout = {0, 0};
 
     if (free_ios_.size() == ios_pool_size_) {
-        return NIXL_SUCCESS; // All ios are free, no ios in flight
+        return NIXL_SUCCESS;
     }
 
-    rc = io_getevents(io_ctx_, 0, MAX_IO_CHECK_COMPLETED_BATCH_SIZE, events, &timeout);
+    int rc = io_getevents(io_ctx_, 0, MAX_IO_CHECK_COMPLETED_BATCH_SIZE, events, &timeout);
     if (rc < 0) {
-        NIXL_ERROR << "io_getevents error: " << rc;
+        if (rc == -EINTR) {
+            return NIXL_IN_PROG;
+        }
+        NIXL_ERROR << "io_getevents error: " << nixl_strerror(-rc);
         return NIXL_ERR_BACKEND;
     }
 
     for (int i = 0; i < rc; i++) {
-        struct iocb *iocb = events[i].obj;
-        nixlPosixLinuxAioIO *io = (nixlPosixLinuxAioIO *)iocb->data;
+        auto *io = static_cast<nixlPosixLinuxAioIO *>(events[i].obj->data);
+        completeIO(io, events[i].res);
+    }
 
-        if (events[i].res < 0) {
-            NIXL_ERROR << "AIO operation failed: " << events[i].res;
-            return NIXL_ERR_BACKEND;
+    return free_ios_.size() == ios_pool_size_ ? NIXL_SUCCESS : NIXL_IN_PROG;
+}
+
+void
+nixlPosixIOQueueLinuxAIO::failQueuedIOs(void *ctx) {
+    for (auto it = ios_to_submit_.begin(); it != ios_to_submit_.end();) {
+        nixlPosixLinuxAioIO *io = *it;
+        if (io->ctx_ != ctx) {
+            ++it;
+            continue;
         }
 
         if (io->clb_) {
-            io->clb_(io->ctx_, events[i].res, 0);
+            io->clb_(io->ctx_, 0, 1);
+        }
+        it = ios_to_submit_.erase(it);
+        free_ios_.push_back(io);
+    }
+}
+
+unsigned
+nixlPosixIOQueueLinuxAIO::cancel(void *ctx, nixlPosixIOQueueCancelDoneCb) {
+    if (!ctx) {
+        return 0;
+    }
+
+    failQueuedIOs(ctx);
+
+    for (auto &io : ios_) {
+        if (!io.in_flight_ || io.ctx_ != ctx) {
+            continue;
         }
 
-        completed_ios.push_back(io);
+        struct io_event event{};
+        if (io_cancel(io_ctx_, &io.io_, &event) == 0) {
+            // io_cancel returns the canceled operation's completion synchronously.
+            completeIO(&io, event.res);
+        }
+        // If the kernel cannot cancel an operation, its ordinary completion callback will
+        // retire it. Linux AIO never queues a separate asynchronous cancellation completion.
     }
 
-    if (!completed_ios.empty()) {
-        free_ios_.splice(free_ios_.end(), completed_ios);
-    }
-
-    if (free_ios_.size() == ios_pool_size_) {
-        return NIXL_SUCCESS; // All ios are free now
-    }
-
-    return NIXL_IN_PROG; // Some blocks are in flight, need to check again
+    return 0;
 }
 
 nixl_status_t
 nixlPosixIOQueueLinuxAIO::poll(void) {
-    nixl_status_t status = post();
-    if (status < 0) {
-        return status;
-    }
+    nixl_status_t submit_status = post();
+    nixl_status_t completion_status = doCheckCompleted();
 
-    return doCheckCompleted();
+    return submit_status < 0 ? submit_status : completion_status;
 }
 
 std::unique_ptr<nixlPosixIOQueue>

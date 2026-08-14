@@ -182,17 +182,19 @@ nixl_status_t
 nixlPosixBackendReqH::queueResult(nixl_status_t queue_result) {
     if (queue_result < 0) {
         transfer_failed_ = true;
+        if (queue_failure_status_ >= 0) {
+            queue_failure_status_ = queue_result;
+        }
     }
 
     requestCancellation();
-    if (queue_result < 0 && cancels_expected_ == 0) {
-        return queue_result;
-    }
-
     if (!isComplete()) {
         return NIXL_IN_PROG;
     }
-    return transfer_failed_ ? NIXL_ERR_BACKEND : NIXL_SUCCESS;
+    if (!transfer_failed_) {
+        return NIXL_SUCCESS;
+    }
+    return queue_failure_status_ < 0 ? queue_failure_status_ : NIXL_ERR_BACKEND;
 }
 
 nixl_status_t
@@ -208,6 +210,7 @@ nixlPosixBackendReqH::postXfer() {
     }
     num_confirmed_ios_ = 0;
     transfer_failed_ = false;
+    queue_failure_status_ = NIXL_SUCCESS;
     cancellation_requested_ = false;
     cancels_expected_ = 0;
     cancels_seen_ = 0;

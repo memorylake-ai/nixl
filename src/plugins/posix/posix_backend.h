@@ -86,6 +86,7 @@ private:
     const int queue_depth_; // Queue depth for async I/O
     int num_confirmed_ios_; // Number of confirmed IOs
     bool transfer_failed_ = false; // Set if any io of the current transfer failed
+    nixl_status_t queue_failure_status_ = NIXL_SUCCESS; // Preserve a queue error until I/O drains
     bool cancellation_requested_ = false; // Set when cancellation begins for this transfer
     unsigned cancels_expected_ = 0; // Cancellations expected for this request
     unsigned cancels_seen_ = 0; // Cancellations completed for this request
