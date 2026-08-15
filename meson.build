@@ -116,36 +116,38 @@ endif
 
 # Check for libaio (for LINUX AIO plugin and test)
 has_linux_aio = false
-linux_aio_dep = cpp.find_library('aio', required: false)
-if linux_aio_dep.found()
-    has_linux_aio = cpp.has_function('io_setup', prefix: '#include <libaio.h>',  dependencies: [linux_aio_dep])
-endif
-
-# Check for liburing
 has_io_uring = false
-io_uring_dep = dependency('liburing', required: false,
-                          fallback: ['liburing'],
-                          default_options: ['default_library=shared'])
-if io_uring_dep.found()
-  if io_uring_dep.type_name() == 'internal'
-    # Internal (subproject) deps cannot be passed to compiler checks in meson
-    # < 1.5.  Retrieve the include dirs from the already-configured subproject
-    # and probe the header directly.
-    liburing_subproj = subproject('liburing')
-    has_io_uring = cpp.has_header_symbol('liburing.h', 'io_uring_queue_init_params',
-                                         include_directories: liburing_subproj.get_variable('inc'))
-  else
-    has_io_uring = cpp.has_function('io_uring_queue_init_params',
-                                    prefix: '#include <liburing.h>',
-                                    dependencies: [io_uring_dep])
+has_posix_aio = false
+has_posix_plugin = false
+if enabled_plugins.get('POSIX')
+  linux_aio_dep = cpp.find_library('aio', required: false)
+  if linux_aio_dep.found()
+      has_linux_aio = cpp.has_function('io_setup', prefix: '#include <libaio.h>',  dependencies: [linux_aio_dep])
   endif
+
+  # Check for liburing
+  io_uring_dep = dependency('liburing', required: false,
+                            fallback: ['liburing'],
+                            default_options: ['default_library=shared'])
+  if io_uring_dep.found()
+    if io_uring_dep.type_name() == 'internal'
+      # Internal (subproject) deps cannot be passed to compiler checks in meson
+      # < 1.5.  Retrieve the include dirs from the already-configured subproject
+      # and probe the header directly.
+      liburing_subproj = subproject('liburing')
+      has_io_uring = cpp.has_header_symbol('liburing.h', 'io_uring_queue_init_params',
+                                           include_directories: liburing_subproj.get_variable('inc'))
+    else
+      has_io_uring = cpp.has_function('io_uring_queue_init_params',
+                                      prefix: '#include <liburing.h>',
+                                      dependencies: [io_uring_dep])
+    endif
+  endif
+
+  # Check for POSIX aio
+  has_posix_aio = cpp.has_function('aio_cancel', prefix: '#include <aio.h>', dependencies: [rt_dep])
+  has_posix_plugin = has_linux_aio or has_io_uring or has_posix_aio
 endif
-
-# Check for POSIX aio
-has_posix_aio = cpp.has_function('aio_cancel', prefix: '#include <aio.h>', dependencies: [rt_dep])
-
-# Check whether the POSIX plugin is enabled
-has_posix_plugin = has_linux_aio or has_io_uring or has_posix_aio
 
 # Check for CUObject Client library
 cuobj_dep = dependency('cuobjclient-13.1', required: false)
@@ -193,7 +195,10 @@ else
   message('Using system Abseil dependencies')
   summary({'Abseil source': 'system'}, section: 'Dependencies')
 endif
-taskflow_proj = dependency('taskflow', fallback: ['taskflow', 'taskflow_dep'])
+taskflow_proj = disabler()
+if enabled_plugins.get('GDS_MT')
+  taskflow_proj = dependency('taskflow', fallback: ['taskflow', 'taskflow_dep'])
+endif
 
 cuda_inc_path = get_option('cudapath_inc')
 cuda_lib_path = get_option('cudapath_lib')
