@@ -320,8 +320,10 @@ shouldDeepBindPlugin(const std::string &plugin_name) {
     }
 
     try {
-        /* TODO: check if RTLD_DEEPBIND is needed at all for UCX/NIXL */
-        return nixl::config::getValueDefaulted<bool>(kUcxDeepBindVar, false);
+        // UCX plugins may coexist with a different UCX instance already loaded by MPI. Deep
+        // binding keeps the plugin's suffixed UCX dependencies from being interposed by MPI's
+        // unsuffixed symbols. The environment variable remains available as an explicit override.
+        return nixl::config::getValueDefaulted<bool>(kUcxDeepBindVar, true);
     }
     catch (const std::exception &e) {
         NIXL_WARN << "Invalid " << kUcxDeepBindVar
@@ -388,14 +390,23 @@ getPluginDir() {
         return *plugin_dir;
     }
 
-    // By default, use the plugin directory relative to the binary
-    Dl_info info;
-    int ok = dladdr(reinterpret_cast<void *>(&getPluginDir), &info);
-    if (!ok) {
-        NIXL_ERROR << "Failed to get plugin directory from dladdr";
+    // This function is part of libnixl, so dladdr locates the loaded library rather than the
+    // application executable. The installed dynamic plugins live next to it under plugins/.
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<void *>(&getPluginDir), &info) == 0 || info.dli_fname == nullptr) {
+        NIXL_ERROR << "Failed to locate libnixl with dladdr";
         return "";
     }
-    return (std::filesystem::path(info.dli_fname).parent_path() / "plugins").string();
+
+    std::error_code ec;
+    const std::filesystem::path library_path =
+        std::filesystem::weakly_canonical(info.dli_fname, ec);
+    if (ec) {
+        NIXL_ERROR << "Failed to resolve libnixl path " << info.dli_fname << ": " << ec.message();
+        return "";
+    }
+
+    return (library_path.parent_path() / "plugins").string();
 }
 } // namespace
 
