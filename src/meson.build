@@ -23,16 +23,20 @@ subdir('plugins')
 subdir('core')
 
 # Test utilities library - created after nixl_dep is available to avoid circular dependencies
-nixl_test_utils_lib = library('nixl_test_utils',
-                             'infra/test_utils.cpp',
-                             include_directories: [ nixl_inc_dirs, utils_inc_dirs ],
-                             dependencies: [nixl_dep, nixl_common_dep, absl_log_dep],
-                             install: true)
+if get_option('build_test_utils')
+  nixl_test_utils_lib = library('nixl_test_utils',
+                               'infra/test_utils.cpp',
+                               include_directories: [ nixl_inc_dirs, utils_inc_dirs ],
+                               dependencies: [nixl_dep, nixl_common_dep, absl_log_dep],
+                               install: true)
 
-nixl_test_utils_dep = declare_dependency(
-    include_directories: include_directories('infra'),
-    link_with: nixl_test_utils_lib,
-    dependencies: [nixl_dep, nixl_common_dep]
-)
+  nixl_test_utils_dep = declare_dependency(
+      include_directories: include_directories('infra'),
+      link_with: nixl_test_utils_lib,
+      dependencies: [nixl_dep, nixl_common_dep]
+  )
+endif
 
-subdir('bindings')
+if get_option('build_python_bindings') or get_option('build_c_api_binding') or get_option('rust')
+  subdir('bindings')
+endif

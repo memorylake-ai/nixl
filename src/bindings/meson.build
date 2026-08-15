@@ -13,19 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-subdir('python')
+if get_option('build_python_bindings')
+  subdir('python')
+endif
 
-# Shared library exposing the nixl C API (nixl_capi_* symbols).
-# Always built so LD_PRELOAD can override stub symbols at runtime when
-# downstream Rust binaries were compiled without nixl present.
-nixl_capi_inc = include_directories('../api/cpp', '../infra', '../core')
-shared_library('nixl_capi',
-    sources: ['rust/wrapper.cpp'],
-    include_directories: [nixl_capi_inc],
-    link_with: [nixl_lib, nixl_build_lib],
-    dependencies: [declare_dependency(link_with: [nixl_lib, nixl_build_lib], include_directories: nixl_capi_inc)],
-    install: true
-  )
+# Shared library exposing the nixl C API (nixl_capi_* symbols). When enabled, this allows
+# LD_PRELOAD to override stub symbols at runtime for downstream Rust binaries built without NIXL.
+if get_option('build_c_api_binding')
+  nixl_capi_inc = include_directories('../api/cpp', '../infra', '../core')
+  shared_library('nixl_capi',
+      sources: ['rust/wrapper.cpp'],
+      include_directories: [nixl_capi_inc],
+      link_with: [nixl_lib, nixl_build_lib],
+      dependencies: [declare_dependency(link_with: [nixl_lib, nixl_build_lib], include_directories: nixl_capi_inc)],
+      install: true
+    )
+endif
 
 if get_option('rust')
   subdir('rust')
