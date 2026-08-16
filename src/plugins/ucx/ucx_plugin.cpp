@@ -32,7 +32,6 @@ using ucx_plugin_t = nixlBackendPluginCreator<nixlUcxEngine>;
 
 namespace {
 constexpr const char *kExpectedUcxSonameVar = "NIXL_UCX_EXPECTED_SONAME";
-constexpr const char *kDefaultExpectedUcxSoname = "libucp-yallm";
 
 std::string
 getUcxSymbolPath() {
@@ -52,20 +51,17 @@ validateUcxBinding() {
     NIXL_INFO << "NIXL UCX backend bound to UCX " << ucp_get_version_string() << " at "
               << symbol_path;
 
-    // The memorylake build intentionally links a suffixed private UCX. Keep the environment
-    // variable as a diagnostic override, but validate the yallm SONAME by default.
-    const std::string expected_soname = nixl::config::getValueDefaulted<std::string>(
-        kExpectedUcxSonameVar, kDefaultExpectedUcxSoname);
-    if (expected_soname.empty()) {
+    const auto expected_soname = nixl::config::getValueOptional<std::string>(kExpectedUcxSonameVar);
+    if (!expected_soname || expected_soname->empty()) {
         return true;
     }
 
-    if (symbol_path.find(expected_soname) != std::string::npos) {
+    if (symbol_path.find(*expected_soname) != std::string::npos) {
         return true;
     }
 
-    NIXL_ERROR << "Expected UCX SONAME " << expected_soname << " but NIXL UCX backend bound to "
-               << symbol_path;
+    NIXL_ERROR << kExpectedUcxSonameVar << "=" << *expected_soname
+               << " but NIXL UCX backend bound to " << symbol_path;
     return false;
 }
 

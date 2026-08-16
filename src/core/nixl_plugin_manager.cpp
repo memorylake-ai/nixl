@@ -320,10 +320,8 @@ shouldDeepBindPlugin(const std::string &plugin_name) {
     }
 
     try {
-        // UCX plugins may coexist with a different UCX instance already loaded by MPI. Deep
-        // binding keeps the plugin's suffixed UCX dependencies from being interposed by MPI's
-        // unsuffixed symbols. The environment variable remains available as an explicit override.
-        return nixl::config::getValueDefaulted<bool>(kUcxDeepBindVar, true);
+        /* TODO: check if RTLD_DEEPBIND is needed at all for UCX/NIXL */
+        return nixl::config::getValueDefaulted<bool>(kUcxDeepBindVar, false);
     }
     catch (const std::exception &e) {
         NIXL_WARN << "Invalid " << kUcxDeepBindVar
