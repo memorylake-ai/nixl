@@ -531,6 +531,7 @@ endif
 
 if get_option('install_headers')
   install_headers('src/api/cpp/nixl.h', install_dir: prefix_inc)
+  install_headers(nixl_version_h, install_dir: prefix_inc)
   install_headers('src/api/cpp/nixl_types.h', install_dir: prefix_inc)
   install_headers('src/api/cpp/nixl_params.h', install_dir: prefix_inc)
   install_headers('src/api/cpp/nixl_descriptors.h', install_dir: prefix_inc)

@@ -13,4 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-subdir_done()
+# The version lives in project() and must not be restated by hand, so substitute it into a public
+# header here. The output lands in this directory's build dir, which nixl_inc_dirs already puts on
+# the include path, so nixl.h finds it both in-tree and from the install prefix.
+nixl_version_parts = meson.project_version().split('.')
+nixl_version_h = configure_file(
+    input: 'nixl_version.h.in',
+    output: 'nixl_version.h',
+    configuration: {
+        'NIXL_VERSION_MAJOR': nixl_version_parts[0],
+        'NIXL_VERSION_MINOR': nixl_version_parts[1],
+        'NIXL_VERSION_PATCH': nixl_version_parts[2],
+        'NIXL_VERSION_STRING': meson.project_version(),
+    },
+)

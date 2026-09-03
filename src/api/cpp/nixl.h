@@ -24,6 +24,7 @@
 #include "nixl_types.h"
 #include "nixl_params.h"
 #include "nixl_descriptors.h"
+#include "nixl_version.h"
 #include <chrono>
 #include <memory>
 
